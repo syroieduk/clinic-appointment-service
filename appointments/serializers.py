@@ -8,6 +8,7 @@ from doctor_slots.serializers import DoctorSlotDetailSerializer
 from notifications.messages import appointment_booked
 from notifications.services import notify_admins
 from payments.models import Payment
+from payments.serializers import PaymentSerializer
 
 
 class AppointmentListSerializer(serializers.ModelSerializer):
@@ -39,6 +40,7 @@ class AppointmentListSerializer(serializers.ModelSerializer):
 
 class AppointmentDetailSerializer(serializers.ModelSerializer):
     doctor_slot = DoctorSlotDetailSerializer(read_only=True)
+    payments = PaymentSerializer(many=True, read_only=True)
 
     class Meta:
         model = Appointment
@@ -50,6 +52,7 @@ class AppointmentDetailSerializer(serializers.ModelSerializer):
             "booked_at",
             "completed_at",
             "price",
+            "payments",
         ]
 
 

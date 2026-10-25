@@ -1,13 +1,15 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from decimal import Decimal
 from unittest.mock import patch
 
 from django.contrib.auth import get_user_model
 from django.test import TestCase
 from django.utils import timezone
-from rest_framework.test import APIClient
+from rest_framework.exceptions import ValidationError
+from rest_framework.test import APIClient, APIRequestFactory
 
 from appointments.models import Appointment
+from appointments.serializers import AppointmentCreateSerializer
 from doctor_slots.models import DoctorSlot
 from doctors.models import Doctor
 from notifications.messages import appointment_booked
@@ -80,6 +82,14 @@ class AppointmentAPITests(TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertIn("doctor_slot", response.data)
+        self.assertEqual(
+            datetime.fromisoformat(response.data["doctor_slot"]["start"].replace("Z", "+00:00")),
+            self.slot.start,
+        )
+        self.assertEqual(
+            datetime.fromisoformat(response.data["doctor_slot"]["end"].replace("Z", "+00:00")),
+            self.slot.end,
+        )
         self.assertEqual(
             response.data["doctor_slot"]["doctor"]["first_name"],
             "Olena",
@@ -183,3 +193,31 @@ class AppointmentAPITests(TestCase):
 
         self.assertEqual(response.status_code, 400)
         self.assertFalse(Appointment.objects.filter(doctor_slot=slot).exists())
+
+    def test_create_rejects_slot_booked_after_validation(self):
+        start = timezone.now() + timedelta(days=3)
+        slot = DoctorSlot.objects.create(
+            doctor=self.doctor,
+            start=start,
+            end=start + timedelta(minutes=30),
+        )
+        request = APIRequestFactory().post(self.list_url)
+        request.user = self.other_patient
+
+        serializer = AppointmentCreateSerializer(
+            data={"doctor_slot": slot.id},
+            context={"request": request},
+        )
+        self.assertTrue(serializer.is_valid(), serializer.errors)
+
+        Appointment.objects.create(
+            doctor_slot=slot,
+            patient=self.patient,
+            price=self.doctor.price_per_visit,
+        )
+
+        with self.assertRaisesMessage(
+            ValidationError,
+            "This slot is already booked.",
+        ):
+            serializer.save()

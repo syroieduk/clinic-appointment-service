@@ -98,3 +98,34 @@ class PaymentServiceStripeTests(BaseTestCase):
 
         self.assertEqual(payment.id, existing_payment.id)
         mock_stripe_create.assert_not_called()
+
+    @patch("stripe.checkout.Session.create")
+    def test_renew_payment_success(self, mock_stripe_create):
+        mock_stripe_create.return_value = MagicMock(
+            id="sess_renewed_456",
+            url="https://checkout.stripe.com/pay/sess_renewed_456",
+        )
+        expired_payment = Payment.objects.create(
+            appointment=self.appointment,
+            type=Payment.Type.CONSULTATION,
+            status=Payment.Status.EXPIRED,
+            session_id="sess_old_123",
+            session_url="https://checkout.stripe.com/old",
+            money_to_pay=self.appointment.price,
+        )
+
+        renewed = PaymentService.renew(expired_payment)
+
+        self.assertEqual(renewed.id, expired_payment.id)
+        self.assertEqual(renewed.status, Payment.Status.PENDING)
+        self.assertEqual(renewed.session_id, "sess_renewed_456")
+        self.assertEqual(renewed.session_url, "https://checkout.stripe.com/pay/sess_renewed_456")
+        mock_stripe_create.assert_called_once()
+        call_kwargs = mock_stripe_create.call_args.kwargs
+        self.assertEqual(
+            call_kwargs["metadata"],
+            {
+                "appointment_id": self.appointment.id,
+                "payment_type": Payment.Type.CONSULTATION,
+            },
+        )
